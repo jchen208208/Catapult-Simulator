@@ -1,3 +1,4 @@
+import asyncio
 import pygame
 from catapult import (
     Catapult, draw_background, get_ends,
@@ -9,7 +10,7 @@ from cata_objects import OBJECTS
 from cataui import UI
 
 
-def main():
+async def main():
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Catapult Simulator")
@@ -62,10 +63,7 @@ def main():
         # ── Update ────────────────────────────────────────────────────────
         catapult.update(dt, mx, my, camera_x)
 
-        # Spawn a projectile immediately when the arm is released
-        # (has_fired is set in catapult's MOUSEBUTTONUP handler).
         if catapult.has_fired and ui.get_selected_object() and projectile is None:
-            # Projectile always releases at the top of the arc (90°)
             px, py = get_launch_point(
                 catapult.pivot, catapult.arm_length, RELEASE_ANGLE
             )
@@ -79,11 +77,7 @@ def main():
 
         if projectile:
             projectile.update(dt)
-            # Keep the stopped projectile on screen so the HUD
-            # continues to display final stats.
-            # Pressing R clears everything.
 
-        # Let the UI track flight state and detect landing.
         ui.update(projectile, catapult, dt)
 
         # ── Camera ────────────────────────────────────────────────────────
@@ -97,7 +91,6 @@ def main():
 
         catapult.draw(screen, font, camera_x)
 
-        # Draw selected object on top of the basket so it visibly sits inside
         selected_obj = ui.get_selected_object()
         if selected_obj and projectile is None:
             basket_pivot = (catapult.pivot[0] - camera_x, catapult.pivot[1])
@@ -110,13 +103,14 @@ def main():
         if projectile:
             projectile.draw(screen, camera_x)
 
-        # All UI elements — HUD panels, picker, controls, fire button
         ui.draw(screen, projectile, catapult, camera_x)
 
         pygame.display.flip()
 
+        # ── Required by pygbag for web export ─────────────────────────────
+        await asyncio.sleep(0)
+
     pygame.quit()
 
 
-if __name__ == "__main__":
-    main()
+asyncio.run(main())
