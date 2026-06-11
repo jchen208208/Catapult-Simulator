@@ -32,7 +32,11 @@ def _load_sprite(name: str) -> pygame.Surface | None:
         return None
     path = os.path.join(os.path.dirname(__file__), "cata_assets", filename)
     try:
-        img = pygame.image.load(path).convert_alpha()
+        img = pygame.image.load(path)
+        if img.get_bytesize() == 4:
+            img = img.convert_alpha()
+        else:
+            img = img.convert()
         return img
     except (pygame.error, FileNotFoundError):
         return None

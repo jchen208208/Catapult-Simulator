@@ -13,10 +13,13 @@ from cataui import UI
 async def main():
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Catapult Simulator")
+    try:
+        pygame.display.set_caption("Catapult Simulator")
+    except Exception:
+        pass
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("Arial", 14)
-    font_large = pygame.font.SysFont("Arial", 18, bold=True)
+    font = pygame.font.Font(None, 18)
+    font_large = pygame.font.Font(None, 24)
 
     catapult = Catapult(pivot=(240, GROUND_Y - 75))
     ui = UI(font, font_large)
