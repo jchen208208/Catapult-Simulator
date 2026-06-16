@@ -8,6 +8,7 @@ from cata_physics import launch_velocity, get_launch_point
 from cata_projectile import Projectile, draw_object
 from cata_objects import OBJECTS
 from cataui import UI
+from cata_init_screen import InitScreen
 
 
 async def main():
@@ -17,6 +18,12 @@ async def main():
         pygame.display.set_caption("Catapult Simulator")
     except Exception:
         pass
+
+    init = InitScreen(screen)
+    await init.run()
+
+    pygame.event.clear()
+
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 18)
     font_large = pygame.font.Font(None, 24)
