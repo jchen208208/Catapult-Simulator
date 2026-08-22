@@ -7,65 +7,33 @@ from cata_projectile import draw_object
 
 
 class UI:
-    """HUD manager — draws launch stats, flight telemetry, landed stats,
-    object picker, controls reminder, and a fire/reset button.
-
-    Lives in screen space (camera_x is only used for the fire button's
-    proximity to the catapult).
+    """
+    Everything drawn on top of the world: the stats panel, the object picker and the controls reminder.
+    All of it is screen space, so nothing here cares about the camera.
     """
 
-    # Number of currently defined projectile objects.
-    # Used to clamp the selected index.
     _OBJECT_COUNT = len(OBJECTS)
 
     def __init__(self, font, font_large):
-        # Fonts for normal and large text rendering
         self.font = font
         self.font_large = font_large
 
-        # Index into OBJECTS for the currently selected projectile type
         self.selected_index = 0
 
-        # World x-position of the launch point (px), recorded the first
-        # frame the projectile enters the "flying" state.
+        # These four get filled in as the throw happens, then frozen into final_stats at the end.
         self.launch_x = 0.0
-
-        # Elapsed time since launch (seconds), updated every frame during
-        # flight so it's available for the frozen stats at landing.
         self.flight_timer = 0.0
-
-        # Peak height (metres) reached during flight, tracked so it's
-        # available when the stats are frozen at landing.
         self.max_height = 0.0
-
-        # Speed (px/s) at the moment of first ground impact, captured
-        # when the projectile transitions from flying → rolling.
         self.impact_speed = 0.0
 
-        # Frozen final stats dict, set once when the projectile
-        # transitions from rolling → stopped.  Keys:
-        # "distance", "max_height", "flight_time", "impact_speed".
-        # None while still moving.
+        # distance, max_height, flight_time and impact_speed, set once it stops. None until then.
         self.final_stats = None
 
-        # ──internal bookkeeping────────────────────────────────────────
-
-        # Which picker button the mouse is hovering over (index or None)
         self._hovered_index = None
-
-        # Projectile state from the previous frame, used to detect the
-        # landing transition (flying → rolling / stopped).
-        self._prev_state = None
-
-        # True once the current projectile has entered the "flying"
-        # state at least once.  Reset to False when projectile becomes
-        # None (i.e. after a reset).
+        self._prev_state = None # last frame's projectile state, used to spot the transitions
         self._has_been_flying = False
 
-        # ──screen-space UI elements────────────────────────────────────
-
-        # Compute once: centre (x, y) for each object picker circle on
-        # the right-hand side of the screen.
+        # picker circles go down the right-hand side, worked out once here
         picker_x = WIDTH - 65
         picker_start_y = 90
         picker_spacing = 78
@@ -74,19 +42,9 @@ class UI:
             for i in range(self._OBJECT_COUNT)
         ]
 
-    # ──public interface────────────────────────────────────────────────
-
     def handle_event(self, event):
-        """Process a single pygame event.
-
-        Returns:
-            None               — no special action needed
-            "fire_button"      — the fire / reset button was clicked;
-                                 the caller should look at the current
-                                 game state to decide whether to fire
-                                 or reset.
-        """
-        # Number keys 1‑6 select an object directly.
+        """Handle one pygame event. Always returns None, the caller doesn't need anything back."""
+        # 1 to 6 pick an object straight off
         if event.type == pygame.KEYDOWN:
             if pygame.K_1 <= event.key <= pygame.K_6:
                 idx = event.key - pygame.K_1
@@ -94,11 +52,10 @@ class UI:
                     self.selected_index = idx
                 return None
 
-        # Mouse clicks — test picker buttons first, then the fire button.
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
 
-            # Picker-button hit-test (circular, radius 30 px)
+            # circular hit test, 30 px radius
             for i, (cx, cy) in enumerate(self._picker_pos):
                 dx = mx - cx
                 dy = my - cy
@@ -109,9 +66,7 @@ class UI:
         return None
 
     def update(self, projectile, catapult, dt):
-        """Called once per frame.  Updates hover detection, flight
-        tracking, and detects the landing transition to freeze stats."""
-        # ──picker hover────────────────────────────────────────────────
+        """Hover detection, flight tracking, and spotting the moment it lands so the stats can be frozen."""
         mx, my = pygame.mouse.get_pos()
         self._hovered_index = None
         for i, (cx, cy) in enumerate(self._picker_pos):
@@ -121,37 +76,32 @@ class UI:
                 self._hovered_index = i
                 break
 
-        # ──flight tracking─────────────────────────────────────────────
         if projectile is None:
-            # No active projectile → reset all tracking for the next
-            # launch
+            # nothing in the air, so clear everything ready for the next shot
             self.final_stats = None
             self._prev_state = None
             self._has_been_flying = False
             return
 
-        # Record launch position the instant the projectile starts flying
+        # note where it started, the first frame it's actually flying
         if not self._has_been_flying and projectile.state == "flying":
             self._has_been_flying = True
             self.launch_x = projectile.x
             self.flight_timer = 0.0
             self.max_height = 0.0
 
-        # Update while the projectile is airborne
         if self._has_been_flying:
             self.flight_timer += dt
             height_m = (GROUND_Y - projectile.y) / PIXELS_PER_METER
             if height_m > self.max_height:
                 self.max_height = height_m
 
-        # ──impact detection (flying → rolling)─────────────────────────
-        # Record the speed at the moment of first ground contact.
+        # the frame it settles into a roll is what counts as the impact
         if (self._prev_state in ("flying", "bouncing")
                 and projectile.state == "rolling"):
             self.impact_speed = math.hypot(projectile.vx, projectile.vy)
 
-        # ──stop detection (rolling → stopped)──────────────────────────
-        # Freeze final stats when the projectile comes to rest.
+        # and once it stops, freeze the numbers so the panel can keep showing them
         if (self._prev_state == "rolling"
                 and projectile.state == "stopped"):
             self.final_stats = {
@@ -164,14 +114,10 @@ class UI:
         self._prev_state = projectile.state
 
     def draw(self, surface, projectile, catapult, camera_x):
-        """Draw every UI element in the correct z-order.
-
-        The HUD panel (top-left) switches between three modes depending
-        on what is happening: launch stats, flight telemetry, or landed
-        stats.  The picker, controls reminder, and fire button are drawn
-        on top.
         """
-        # ──HUD panel (top-left corner)────────────────────────────────
+        The panel in the top left switches between four modes depending on what the projectile is doing.
+        Picker and controls go on top of it.
+        """
         if projectile and projectile.state in ("flying", "bouncing"):
             self._draw_flight_telemetry(surface, projectile)
         elif projectile and projectile.state == "rolling":
@@ -180,42 +126,35 @@ class UI:
             self._draw_stopped_stats(surface, self.final_stats)
         elif projectile is None and (catapult.dragging
                                      or catapult.is_oscillating):
-            # Arm is being pulled back or swinging — live launch preview
+            # still aiming, so show what the shot would look like
             self._draw_launch_stats(surface, catapult)
 
-        # ──Object picker (right side)──────────────────────────────────
-        # Only show the picker when there is no projectile flying and
-        # the arm is at rest (not being dragged, not oscillating).
+        # picker only shows when nothing's happening, otherwise it's in the way
         if (projectile is None and not catapult.dragging
                 and not catapult.is_oscillating):
             self._draw_picker(surface)
 
-        # ──Controls reminder (bottom-left)─────────────────────────────
         self._draw_controls(surface)
 
 
 
-    # ──public query───────────────────────────────────────────────────
-
     def get_selected_object(self):
-        """Return the ProjectileObject that is currently highlighted in
-        the picker."""
+        """Whichever object is currently highlighted in the picker."""
         return OBJECTS[self.selected_index]
-
-    # ══════════════════════════════════════════════════════════════════
-    # DRAWING HELPERS
-    # ══════════════════════════════════════════════════════════════════
 
     @staticmethod
     def _lighten(color, factor):
-        """Lighten an RGB colour by blending it toward white."""
+        """Blend a colour toward white."""
         return tuple(min(255, int(c + (255 - c) * factor)) for c in color)
 
     @staticmethod
     def _draw_hud_box(surface, lines, x, y, font, line_height=24,
                       pad_x=12, pad_y=10, color=(220, 235, 255),
                       label_color=(140, 160, 185)):
-        """Render text lines with two-tone label/value coloring inside a rounded box."""
+        """
+        Rounded translucent box with a list of text lines in it.
+        Anything with a colon in it gets split so the label and the value can be different colours.
+        """
         box_w = max(font.size(l)[0] for l in lines) + pad_x * 2
         box_h = len(lines) * line_height + pad_y * 2
         bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
@@ -233,23 +172,20 @@ class UI:
                 r = font.render(line, True, color)
                 surface.blit(r, (x + pad_x, y + pad_y + i * line_height))
 
-    # ──HUD modes──────────────────────────────────────────────────────
-
     def _draw_launch_stats(self, surface, catapult):
-        """Top-left panel: live stats while the user drags the arm."""
+        """Live preview while the arm is being dragged back."""
         obj = OBJECTS[self.selected_index]
 
-        # Arm extension as a percentage of the range [ARM_MIN, ARM_MAX]
+        # arm length and pull-back, both as a percentage of their range
         arm_load = ((catapult.arm_length - ARM_MIN)
                     / (ARM_MAX - ARM_MIN) * 100)
         arm_load = max(0.0, min(100.0, arm_load))
 
-        # Pull-back angle as a percentage of [ARM_ANGLE_REST, ARM_ANGLE_MAX]
         pull = ((catapult.arm_angle - ARM_ANGLE_REST)
                 / (ARM_ANGLE_MAX - ARM_ANGLE_REST) * 100)
         pull = max(0.0, min(100.0, pull))
 
-        # Live speed estimate using the current arm configuration
+        # what it'd launch at if you let go right now
         try:
             vx, vy = launch_velocity(
                 catapult.arm_length, catapult.arm_angle, RELEASE_ANGLE,
@@ -269,7 +205,7 @@ class UI:
         self._draw_hud_box(surface, lines, 10, 10, self.font)
 
     def _draw_flight_telemetry(self, surface, projectile):
-        """Top-left panel: live telemetry during flight."""
+        """Live numbers while it's in the air."""
         vx_ms = projectile.vx / PIXELS_PER_METER
         vy_ms = projectile.vy / PIXELS_PER_METER
         speed_ms = math.hypot(projectile.vx, projectile.vy) / PIXELS_PER_METER
@@ -286,7 +222,7 @@ class UI:
         self._draw_hud_box(surface, lines, 10, 10, self.font)
 
     def _draw_rolling_telemetry(self, surface, projectile):
-        """Top-left panel: live stats while the projectile rolls."""
+        """Same again, but for while it's rolling along the ground."""
         speed_ms = math.hypot(projectile.vx, projectile.vy) / PIXELS_PER_METER
         dist_m = (projectile.x - self.launch_x) / PIXELS_PER_METER
 
@@ -300,7 +236,7 @@ class UI:
                            color=(200, 220, 255))
 
     def _draw_stopped_stats(self, surface, stats):
-        """Top-left panel: frozen final stats after the projectile stops."""
+        """The final card, once everything has come to a stop."""
         label_col = (140, 160, 185)
         value_col = (220, 235, 255)
         rows = [
@@ -310,7 +246,6 @@ class UI:
             (self.font, f"Flight time   : {stats['flight_time']:6.1f} s", None),
             (self.font, f"Impact speed  : {stats['impact_speed'] / PIXELS_PER_METER:6.1f} m/s", None),
         ]
-        # Compute box size
         line_h = [22, 22, 22, 22, 22]
         box_w = max(r[0].size(r[1])[0] for r in rows) + 16
         box_h = sum(line_h[:len(rows)]) + 14
@@ -334,11 +269,9 @@ class UI:
                     surface.blit(r, (14, y + 2))
             y += line_h[i]
 
-    # ──Object picker──────────────────────────────────────────────────
-
     def _draw_picker(self, surface):
-        """Draw clickable object-selection circles on the right side."""
-        # Translucent background behind the picker
+        """The clickable object circles down the right-hand side."""
+        # panel behind them, sized off the biggest object so nothing overhangs
         max_dr = max(o.radius * o.display_scale for o in OBJECTS) * 1.3
         cx = self._picker_pos[0][0]
         box_x = int(cx) - 60
@@ -373,10 +306,8 @@ class UI:
             )
             surface.blit(label, label_rect)
 
-    # ──Controls reminder──────────────────────────────────────────────
-
     def _draw_controls(self, surface):
-        """Small text in the bottom-left showing keyboard shortcuts."""
+        """Keyboard shortcuts, bottom left."""
         lines = [
             "SPACE \u2192 fire",
             "R     \u2192 reset",

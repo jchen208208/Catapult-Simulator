@@ -1,3 +1,5 @@
+# Entry point. The title screen runs first, then this loop takes over.
+
 import asyncio
 import pygame
 from catapult import (
@@ -37,7 +39,6 @@ async def main():
         dt = clock.tick(FPS) / 1000.0
         mx, my = pygame.mouse.get_pos()
 
-        # ── Events ────────────────────────────────────────────────────────
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -45,6 +46,7 @@ async def main():
             catapult.handle_event(event, mx, my, camera_x)
             ui.handle_event(event)
 
+            # space fires, but only if the arm is actually pulled back
             if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                 selected_obj = ui.get_selected_object()
                 if (selected_obj and not catapult.is_oscillating
@@ -54,6 +56,7 @@ async def main():
                     catapult.angular_vel = 0.0
                     catapult.has_fired = False
 
+            # r puts everything back to how it started
             if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                 projectile = None
                 camera_x = 0.0
@@ -70,9 +73,9 @@ async def main():
                 catapult.hovering_handle = False
                 catapult.hovering_basket = False
 
-        # ── Update ────────────────────────────────────────────────────────
         catapult.update(dt, mx, my, camera_x)
 
+        # the arm just crossed the release angle, so spawn what it was holding
         if catapult.has_fired and ui.get_selected_object() and projectile is None:
             px, py = get_launch_point(
                 catapult.pivot, catapult.arm_length, RELEASE_ANGLE
@@ -90,17 +93,18 @@ async def main():
 
         ui.update(projectile, catapult, dt)
 
-        # ── Camera ────────────────────────────────────────────────────────
+        # camera only starts following once the projectile is 40% across the screen
         if projectile and projectile.state in ("flying", "rolling"):
             if projectile.x > WIDTH * 0.4:
                 target_x = projectile.x - WIDTH * 0.4
                 camera_x += (target_x - camera_x) * 0.08
 
-        # ── Draw ──────────────────────────────────────────────────────────
+        # draw, back to front
         draw_background(screen, camera_x)
 
         catapult.draw(screen, font, camera_x)
 
+        # nothing in the air, so show the selected object sitting in the basket
         selected_obj = ui.get_selected_object()
         if selected_obj and projectile is None:
             basket_pivot = (catapult.pivot[0] - camera_x, catapult.pivot[1])
@@ -117,7 +121,7 @@ async def main():
 
         pygame.display.flip()
 
-        # ── Required by pygbag for web export ─────────────────────────────
+        # pygbag needs this to hand control back to the browser every frame
         await asyncio.sleep(0)
 
     pygame.quit()

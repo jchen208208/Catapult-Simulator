@@ -1,3 +1,6 @@
+# Title screen: graph paper, chalk equations, and a front-on catapult.
+# Hitting space throws a ball at the camera, and it grows until it covers the screen, which is what hides the switch to the simulation.
+
 import asyncio
 import math
 import os
@@ -28,11 +31,12 @@ METAL           = (100, 100, 110)
 METAL_DARK      = ( 60,  60,  70)
 ROPE            = (155, 125,  60)
 
-# Ball needs to grow until it covers the full screen diagonal
-# sqrt(1100² + 620²) / 2 ≈ 631 — use 681 to be safe
+# Half the screen diagonal is about 631, so 681 leaves a bit of margin.
 SCREEN_COVER_RADIUS = 681
 
 
+# Not every system font has the superscript characters the equations need.
+# So render one as a test, and fall back to the default font if nothing comes out.
 def _try_font(name, size):
     path = pygame.font.match_font(name)
     if path is not None:
@@ -58,20 +62,17 @@ class InitScreen:
         self.prompt_timer = 0.0
         self.state        = "idle"
 
-        # Shake
         self.shake_x         = 0
         self.shake_y         = 0
         self.shake_intensity = 0.0
 
-        # Arm — swings from 0° (rest/horizontal) to +90° (fired/vertical up)
-        self.fire_progress = 0.0      # 0.0 = rest, 1.0 = fully fired
+        # arm swings from 0° at rest to 90° when fired
+        self.fire_progress = 0.0
 
-        # Projectile
-        self.proj_growth   = 0.0      # grows from 0 to SCREEN_COVER_RADIUS
-        self.proj_visible  = False    # shown while ball is in bucket
-        self.proj_launched = False    # ball has left the bucket
+        self.proj_growth   = 0.0 # up to SCREEN_COVER_RADIUS
+        self.proj_visible  = False # sitting in the bucket
+        self.proj_launched = False # left the bucket
 
-        # Fade out
         self.alpha = 255
         self.done  = False
 
@@ -107,11 +108,9 @@ class InitScreen:
             )
             eq["surface"] = final
 
-    # ── equation helpers ──────────────────────────────────────────────────
-
     @staticmethod
     def _generate_side_eqs():
-        random.seed(42)
+        random.seed(42) # same scatter every time
         entries = [
             "y = v0 sin(\u03b8) t \u2013 \u00bd g t\u00b2",
             "KE = \u00bd m v\u00b2",
@@ -145,11 +144,14 @@ class InitScreen:
         return eqs
 
     def _render_with_fallback(self, text, hand_font, fallback_font, color):
-        """Render text using hand_font; fall back per-character if needed."""
+        """
+        Render in the handwriting font where it can, and drop to the default font for anything it can't.
+        The handwriting file has no Greek or symbols in it, so equations end up as a mix of the two.
+        """
         segments = []
         i = 0
         while i < len(text):
-            # find run of hand-renderable chars
+            # grab as long a run as the handwriting font can handle
             j = i
             while j < len(text) and text[j] in _HAND_CHARS:
                 j += 1
@@ -157,7 +159,7 @@ class InitScreen:
                 segments.append(hand_font.render(text[i:j], True, color))
                 i = j
                 continue
-            # single non-hand char → fallback font
+            # one character it can't do, so use the fallback for just that
             segments.append(fallback_font.render(text[i], True, color))
             i += 1
 
@@ -173,8 +175,6 @@ class InitScreen:
             combined.blit(surf, (x, y_off))
             x += surf.get_width()
         return combined
-
-    # ── events / update ───────────────────────────────────────────────────
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -199,7 +199,7 @@ class InitScreen:
             self.prompt_timer = 0.0
 
         if self.state == "launching":
-            # ── shake decays ──────────────────────────────────────────
+            # shake dies off over the first few frames
             self.shake_intensity = max(0.0, self.shake_intensity - 0.5)
             if self.shake_intensity > 0:
                 si = int(self.shake_intensity)
@@ -208,11 +208,10 @@ class InitScreen:
             else:
                 self.shake_x = self.shake_y = 0
 
-            # ── arm fires: 0° → 90° ──────────────────────────────────
             fire_speed = 5.0
             self.fire_progress = min(1.0, self.fire_progress + fire_speed * dt)
 
-            # Show ball in bucket while arm swings
+            # ball stays in the bucket until the arm reaches the top
             if not self.proj_launched:
                 self.proj_visible = True
 
@@ -225,6 +224,7 @@ class InitScreen:
                     self.proj_growth + 40
                 )
 
+            # once it's half grown it's big enough to start fading out behind it
             if self.proj_growth >= SCREEN_COVER_RADIUS * 0.5:
                 self.state = "transitioning"
 
@@ -238,8 +238,7 @@ class InitScreen:
             if self.alpha <= 0:
                 self.done = True
 
-    # ── drawing ───────────────────────────────────────────────────────────
-
+    # graph paper: heavy lines every 100px, medium every 50, light every 20
     def draw_graphing_paper(self):
         self.screen.fill(DARK_GREEN)
         for x in range(0, WIDTH, 20):
@@ -296,45 +295,33 @@ class InitScreen:
 
     def draw_front_catapult(self, cx, cy, scale=1.0):
         """
-        Draw a catapult facing the viewer (front-on view like the reference image).
+        The catapult seen from the front, so the arm swings toward and away from you.
 
-        The arm swings in the plane of the screen — straight up through the
-        centre of the frame. We fake the 3-D swing illusion by changing
-        the arm's apparent height and width:
-
-          arm_norm = -1.0  →  loaded:  arm is a wide, short ellipse
-                               (arm pointing straight AT the viewer —
-                                fully foreshortened, looks like a disc)
-          arm_norm =  0.0  →  mid:     arm is a medium rectangle
-          arm_norm = +1.0  →  fired:   arm is a tall, narrow rectangle
-                               (arm pointing straight UP)
-
-        The x centre of the arm never moves — giving the correct illusion
-        that it's swinging in depth, not sideways.
+        The arm's x never moves, only its apparent height and width, which is what sells it as depth rather than a sideways swing.
+        Pointing at the viewer it's short and wide, and pointing straight up it's tall and narrow.
         """
         s   = scale
         sx  = cx + self.shake_x
         sy  = cy + self.shake_y
 
-        # ── key measurements ──────────────────────────────────────────
-        w_r         = int(22 * s)    # wheel radius
-        w_sep       = int(58 * s)    # wheel x offset from centre
-        base_w      = int(130 * s)   # chassis beam width
+        w_r         = int(22 * s) # wheel radius
+        w_sep       = int(58 * s) # how far out from centre the wheels sit
+        base_w      = int(130 * s)
         base_h      = int(14 * s)
-        post_w      = int(12 * s)    # vertical A-frame post width
-        post_h      = int(95 * s)    # vertical A-frame post height
-        post_sep    = int(48 * s)    # how far left/right the posts sit
-        crossbar_w  = int(110 * s)   # horizontal bar connecting posts at top
+        post_w      = int(12 * s)
+        post_h      = int(95 * s)
+        post_sep    = int(48 * s)
+        crossbar_w  = int(110 * s)
         crossbar_h  = int(12 * s)
-        hub_r       = int(7  * s)    # pivot hub radius
+        hub_r       = int(7  * s)
 
-        base_top_y  = sy - base_h                  # top of chassis beam
-        post_bot_y  = base_top_y                   # posts sit on chassis
-        post_top_y  = post_bot_y - post_h           # top of posts
-        cross_y     = post_top_y - crossbar_h       # crossbar sits on post tops
-        pivot_y     = cross_y + crossbar_h // 2     # arm pivot point y
+        # everything stacks upward from the chassis
+        base_top_y  = sy - base_h
+        post_bot_y  = base_top_y
+        post_top_y  = post_bot_y - post_h
+        cross_y     = post_top_y - crossbar_h
+        pivot_y     = cross_y + crossbar_h // 2
 
-        # ── wheels ────────────────────────────────────────────────────
         wheel_y = sy - w_r + 4
         for wx in (sx - w_sep, sx + w_sep):
             pygame.draw.circle(self.screen, WOOD_DARK,    (wx, wheel_y), w_r)
@@ -348,18 +335,18 @@ class InitScreen:
             pygame.draw.circle(self.screen, METAL,      (wx, wheel_y), 5)
             pygame.draw.circle(self.screen, METAL_DARK, (wx, wheel_y), 5, 1)
 
-        # ── chassis base beam ─────────────────────────────────────────
+        # chassis
         base_r = pygame.Rect(sx - base_w//2, base_top_y, base_w, base_h)
         pygame.draw.rect(self.screen, WOOD_MID,     base_r)
         pygame.draw.rect(self.screen, WOOD_OUTLINE, base_r, 2)
-        # wood grain lines
+        # grain
         for i in range(3):
             gx = sx - base_w//2 + base_w * (i+1)//4
             pygame.draw.line(self.screen, WOOD_DARK,
                              (gx, base_top_y + 3),
                              (gx, base_top_y + base_h - 3), 1)
 
-        # ── A-frame vertical posts (two, one each side) ───────────────
+        # the two posts
         for px_off in (-post_sep, post_sep):
             pr = pygame.Rect(sx + px_off - post_w//2, post_top_y, post_w, post_h)
             pygame.draw.rect(self.screen, WOOD_LIGHT,   pr)
@@ -369,24 +356,21 @@ class InitScreen:
                              (sx + px_off, post_top_y + 8),
                              (sx + px_off, post_top_y + post_h - 8), 1)
 
-        # ── horizontal crossbar connecting post tops ───────────────────
+        # crossbar across the top of them
         cb_r = pygame.Rect(sx - crossbar_w//2, cross_y, crossbar_w, crossbar_h)
         pygame.draw.rect(self.screen, WOOD_DARK,    cb_r)
         pygame.draw.rect(self.screen, WOOD_OUTLINE, cb_r, 2)
 
-        # ── rope bundle / torsion spring around vertical centre post ───
-        # This is the coiled rope that powers the arm (visible in your image)
+        # The coiled torsion rope up the centre, drawn as a column with bands over it.
         rope_top_y  = pivot_y - int(18 * s)
         rope_bot_y  = base_top_y
         rope_mid_x  = sx
         rope_w      = int(10 * s)
-        # background rope column
         pygame.draw.rect(self.screen, ROPE,
                          pygame.Rect(rope_mid_x - rope_w//2,
                                      rope_top_y,
                                      rope_w,
                                      rope_bot_y - rope_top_y))
-        # coil bands
         coil_color = tuple(max(0, c - 30) for c in ROPE)
         coil_steps = int((rope_bot_y - rope_top_y) / (4 * s))
         for i in range(coil_steps):
@@ -395,7 +379,7 @@ class InitScreen:
                 self.screen, coil_color,
                 pygame.Rect(rope_mid_x - rope_w//2 - 2, cy2, rope_w + 4, int(4 * s))
             )
-        # two ropes extending upward from the bundle to the arm pivot
+        # two ropes running up from the bundle to the pivot
         rope_spread = int(14 * s)
         pygame.draw.line(self.screen, ROPE,
                          (rope_mid_x - rope_spread, rope_top_y),
@@ -404,52 +388,35 @@ class InitScreen:
                          (rope_mid_x + rope_spread, rope_top_y),
                          (sx + int(3*s), pivot_y), 2)
 
-        # ── pivot hub ─────────────────────────────────────────────────
         pygame.draw.circle(self.screen, METAL,      (sx, pivot_y), hub_r)
         pygame.draw.circle(self.screen, METAL_DARK, (sx, pivot_y), hub_r, 2)
 
-        # ── ARM — front-on swing illusion ─────────────────────────────
-        #
-        # arm_norm:  -1 = loaded (arm below pivot, pointing at viewer)
-        #             0 = horizontal (mid swing)
-        #            +1 = fired (arm straight up, pointing away from viewer)
-        #
-        # To fake 3-D swing with no sideways movement:
-        #   - Visual HEIGHT of arm  =  full arm length × |sin(angle)|
-        #     (when horizontal the apparent height is zero — you'd see it
-        #      edge-on; when vertical it's full height)
-        #   - Visual WIDTH of arm   =  arm length × cos(angle)  for foreshortening
-        #     but we cap it so it always looks like a plank not a dot
-        #
-        # Swing from 0° (rest/horizontal) to +90° (fired, perpendicular to ground)
-        full_arm_len  = int(105 * s)  # slightly longer
-        arm_angle_deg = self.fire_progress * 90.0     # 0° → +90°
+        # The arm, and the trick that makes it look like it's swinging in depth.
+        # Height is arm length x |sin(angle)|, so it's flat at rest and full height once upright.
+        # Width goes the other way, widest when it's pointing at you, and capped so it never shrinks to a dot.
+        full_arm_len  = int(105 * s)
+        arm_angle_deg = self.fire_progress * 90.0
         arm_angle_rad = math.radians(arm_angle_deg)
 
-        # Height: 0 at rest (arm points at viewer = edge-on), full when upright
         apparent_h = int(abs(math.sin(arm_angle_rad)) * full_arm_len)
         apparent_h = max(int(4 * s), apparent_h)
 
-        # Width: widest when horizontal (cross-section toward viewer), narrowest when upright
         max_arm_w  = int(18 * s)
         min_arm_w  = int(6  * s)
         w_factor   = abs(math.cos(arm_angle_rad))
         apparent_w = int(min_arm_w + (max_arm_w - min_arm_w) * w_factor)
 
-        # Arm centred at the pivot point
         arm_centre_x = sx
         arm_centre_y = pivot_y
 
-        # Basket at the tip of the arm
-        #   0° (rest)   → arm points AT viewer → basket at pivot (hidden behind arm)
-        #   +90° (fired)→ arm points UP        → basket at top
+        # Basket rides the tip, so at rest it's hidden behind the arm and by 90° it's up at the top.
         basket_cx = arm_centre_x
         basket_cy = pivot_y - int(math.sin(arm_angle_rad) * full_arm_len * 0.5) - int(6 * s)
 
         bucket_w = max(int(10*s), apparent_w + int(8*s))
         bucket_h = max(int(8*s), int(12*s) - int(self.fire_progress * 5 * s))
 
-        # ── Ball in bucket (behind arm) during load and early fire ──
+        # ball goes down before the arm so the arm covers it
         if self.proj_visible and not self.proj_launched:
             in_bucket_r = max(6, int(bucket_w * 0.35))
             c = (80, 50, 30)
@@ -465,48 +432,43 @@ class InitScreen:
         pygame.draw.rect(self.screen, WOOD_LIGHT,   arm_rect, border_radius=3)
         pygame.draw.rect(self.screen, WOOD_OUTLINE, arm_rect, 2, border_radius=3)
 
-        # ── Bucket at the tip ─────────────────────────────────────────
-        # Bowl inner recess (dark)
+        # dark inside of the bowl
         inner_r = pygame.Rect(basket_cx - bucket_w//2,
                               basket_cy - bucket_h//4,
                               bucket_w, bucket_h // 2)
         pygame.draw.ellipse(self.screen, (40, 22, 12), inner_r)
-        # Bowl outer body
         outer_r = pygame.Rect(basket_cx - bucket_w//2,
                               basket_cy - bucket_h//2,
                               bucket_w, bucket_h)
         pygame.draw.ellipse(self.screen, WOOD_DARK, outer_r)
         pygame.draw.ellipse(self.screen, WOOD_OUTLINE, outer_r, 2)
-        # Rim highlight (front edge)
+        # lit edge along the front of the rim
         pygame.draw.line(self.screen, WOOD_LIGHT,
                          (basket_cx - bucket_w//2 + 2, basket_cy),
                          (basket_cx + bucket_w//2 - 2, basket_cy), 2)
 
-        # ── Launched projectile ────────────────────────────────────────
+        # the ball on its way to the camera
         if self.proj_launched:
             proj_r = int(10 * s) + int(self.proj_growth)
 
             prog = min(1.0, self.proj_growth / SCREEN_COVER_RADIUS)
-            px = prog * prog * (3 - 2 * prog)
+            px = prog * prog * (3 - 2 * prog) # smoothstep toward the centre of the screen
 
             proj_x = int(basket_cx + (WIDTH  // 2 - basket_cx) * px)
             proj_y = int(basket_cy + (HEIGHT // 2 - basket_cy) * px)
 
-            # Fully opaque black sphere — solid fill with subtle shading
-            # Base fill (solid black)
             pygame.draw.circle(self.screen, (0, 0, 0), (proj_x, proj_y), proj_r)
 
-            # Subtle shading rings (barely visible depth, centered)
+            # rings from the outside in, just enough shading to stop it looking like a flat disc
             for ring in range(proj_r, 0, -1):
                 t = ring / proj_r
                 v = int(t * 40)
                 pygame.draw.circle(self.screen, (v, v, v), (proj_x, proj_y), ring)
 
-            # Thin rim edge
             pygame.draw.circle(self.screen, (60, 60, 65),
                                (proj_x, proj_y), proj_r, 2)
 
-            # Glossy specular highlight (top-left)
+            # highlight up in the top left, only worth drawing once it's big enough to see
             if proj_r > 15:
                 hl_x = proj_x - int(proj_r * 0.35)
                 hl_y = proj_y - int(proj_r * 0.35)
@@ -518,8 +480,6 @@ class InitScreen:
                 pygame.draw.circle(self.screen, (255, 255, 255),
                                    (hl_x, hl_y), max(2, hl_r // 2))
 
-    # ── composite draw ────────────────────────────────────────────────────
-
     def draw(self):
         self.draw_graphing_paper()
         self.draw_scattered_equations()
@@ -528,14 +488,13 @@ class InitScreen:
         self.draw_front_catapult(WIDTH // 2, HEIGHT - 170, 1.6)
         self.draw_prompt()
 
-        # Fade overlay
+        # fade to black over the top of everything
         if self.alpha < 255:
             ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             ov.fill((0, 0, 0, 255 - self.alpha))
             self.screen.blit(ov, (0, 0))
 
-    # ── async run ─────────────────────────────────────────────────────────
-
+    # async because pygbag needs the browser to get a look-in between frames
     async def run(self):
         while not self.done:
             dt = self.clock.tick(60) / 1000.0

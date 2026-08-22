@@ -1,3 +1,7 @@
+# The six things you can throw.
+# mass in kg, radius in px, restitution is how bouncy it is.
+# display_scale only changes how big the sprite is drawn, the physics still uses radius.
+
 from dataclasses import dataclass
 
 @dataclass
@@ -30,7 +34,7 @@ OBJECTS: list[ProjectileObject] = [
         name="Cannonball",
         mass=8.0,
         radius=10,
-        drag_coeff=0.47,
+        drag_coeff=0.47, # textbook sphere
         restitution=0.10,
         friction_coeff=0.30,
         color=(50, 50, 55),
@@ -55,7 +59,7 @@ OBJECTS: list[ProjectileObject] = [
         mass=0.43,
         radius=14,
         drag_coeff=0.35,
-        restitution=0.70,
+        restitution=0.70, # by far the bounciest one in here
         friction_coeff=0.30,
         color=(230, 230, 230),
         outline_color=(180, 180, 180),
@@ -66,7 +70,7 @@ OBJECTS: list[ProjectileObject] = [
         name="Anvil",
         mass=100.0,
         radius=14,
-        drag_coeff=1.20,
+        drag_coeff=1.20, # nothing like a sphere, so drag goes way up
         restitution=0.05,
         friction_coeff=0.90,
         color=(90, 90, 100),
